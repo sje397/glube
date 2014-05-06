@@ -11,6 +11,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 TARGET = glube
 TEMPLATE = app
 
+INCLUDEPATH += /usr/local/include
 
 SOURCES += main.cpp \
     mainwindow.cpp \

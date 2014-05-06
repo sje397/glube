@@ -1,7 +1,13 @@
-#version 330 core
-layout(location = 0) in vec3 vertexPosition_modelspace;
+#version 120
+attribute vec3 vertexPosition;
+
+uniform mat4 modelMatrix;
+uniform mat4 viewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec3 position;
 
 void main() {
-    gl_Position.xyz = vertexPosition_modelspace;
-    gl_Position.w = 1.0;
+    position = vertexPosition;
+    gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPosition, 1.0);
 }

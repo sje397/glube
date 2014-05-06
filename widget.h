@@ -5,6 +5,12 @@
 #include <QGLWidget>
 #include <QGLShaderProgram>
 
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+
+#include <QKeyEvent>
+#include <QMouseEvent>
+
 class Widget : public QGLWidget
 {
     Q_OBJECT
@@ -20,12 +26,20 @@ protected:
     void resizeGL(int w, int h);
     void paintGL();
 
+    void keyPressEvent(QKeyEvent *e);
+    void keyReleaseEvent(QKeyEvent *e);
+    void mouseMoveEvent(QMouseEvent *e);
+
 private:
     void LoadShaders();
 
     QGLShaderProgram shaderProg;
     GLuint vertexArrayID;
-    GLuint gridVertexbuffer;
+    GLuint gridVertexBuffer, gridIndexBuffer;
+
+    glm::mat4 cam;
+    glm::vec3 motion, position;
+    float yaw, yawRate, pitch, pitchRate;
 };
 
 #endif // WIDGET_H
