@@ -4,7 +4,7 @@
 #
 #-------------------------------------------------
 
-QT       += core gui opengl
+QT += core gui opengl
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -15,10 +15,20 @@ INCLUDEPATH += /usr/local/include
 
 SOURCES += main.cpp \
     mainwindow.cpp \
-    widget.cpp
+    widget.cpp \
+    chunk.cpp \
+    drawable.cpp \
+    mapnode.cpp \
+    vao.cpp \
+    simplex.c
 
 HEADERS  += mainwindow.h \
-    widget.h
+    widget.h \
+    chunk.h \
+    drawable.h \
+    mapnode.h \
+    vao.h \
+    simplex.h
 
 FORMS    += mainwindow.ui
 

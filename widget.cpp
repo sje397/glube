@@ -15,14 +15,20 @@ const float SPEED = 0.5;
 const float RSPEED = M_PI / 200;
 const float MOUSE_RSPEED = M_PI / 200 / 10;
 const float MAX_PITCH = M_PI / 2 * 0.9;
+const float CHUNK_SIZE = 128;
 
 Widget::Widget(QWidget *parent) :
     QGLWidget(QGLFormat(QGL::DoubleBuffer | QGL::DepthBuffer | QGL::Rgba ), parent),
+    vao(),
     yaw(0),
     yawRate(0),
     pitch(0),
-    pitchRate(0)
+    pitchRate(0),
+    nodeFactory(CHUNK_SIZE)
 {
+    //srand(QDateTime::currentMSecsSinceEpoch());
+    srand(2);
+
     QTimer *t = new QTimer(this);
     connect(t, SIGNAL(timeout()), this, SLOT(updateGL()));
     t->setInterval(0);
@@ -37,78 +43,22 @@ Widget::Widget(QWidget *parent) :
 
 Widget::~Widget()
 {
-    makeCurrent();
-    glDeleteBuffers(1, &gridVertexBuffer);
-    glDeleteBuffers(1, &gridIndexBuffer);
-    glDeleteVertexArrays(1, &vertexArrayID);
+    makeCurrent(); // so context is current for vao/chunk etc destructors
 }
 
 void Widget::initializeGL()
 {
     LoadShaders();
 
+    vao.allocate();
+
     glClearColor(0.0, 0.0, 0.0, 0.0);
     glEnable(GL_DEPTH_TEST);
+    //glEnable(GL_CULL_FACE);
 
-    glGenVertexArrays(1, &vertexArrayID);
-    glBindVertexArray(vertexArrayID);
+    currentMapNode = nodeFactory.getMapNode(0, 0);
 
-    const int squares = 1000;
-    const float side = 1000.0;
-    float y = 0;
-    double *verts = new double[(squares + 1) * (squares + 1) * 3];
-    double *pos = verts;
-    unsigned int *indices = new unsigned int[squares * squares * 8];
-    unsigned int index = 0;
-    for(int i = 0; i <= squares; ++i)
-    {
-        for(int j = 0; j <= squares; ++j)
-        {
-            //glVertex3d(i, -1, -100);
-            pos[0] = side / squares * i - side / 2;
-            pos[1] = 0;
-            pos[2] = side / squares * j - side / 2;
-
-            //if(sqrt(pos[0]*pos[0]+pos[2]*pos[2] < 200)) {
-                pos[1] = random() / (float)RAND_MAX - 0.5;
-            //}
-            pos += 3;
-
-            if(i < squares && j < squares) {
-                int v = (i * squares + j) * 8;
-                indices[v] = index;
-                indices[v + 1] = index + 1;
-                indices[v + 2] = index + 1;
-                indices[v + 3] = index + 1 + (squares + 1);
-                indices[v + 4] = index + 1 + (squares + 1);
-                indices[v + 5] = index + (squares + 1);
-                indices[v + 6] = index + (squares + 1);
-                indices[v + 7] = index;
-            }
-            index++;
-        }
-    }
-
-//    {
-//        int v = (500 * 480 + 10) * 8;
-//        qDebug() << indices[v] << indices[v + 1] << indices[v + 2] << indices[v + 3] << indices[v + 4] << indices[v + 5] << indices[v + 6] << indices[v + 7];
-//        for(int i = 0; i < 8; ++i) {
-//            qDebug() << "(" << verts[indices[v + i] * 3] << ", " << verts[indices[v + i] * 3 + 1] << ", " << verts[indices[v + i] * 3 + 2] << ")";
-//        }
-//    }
-
-    glGenBuffers(1, &gridVertexBuffer);
-    glBindBuffer(GL_ARRAY_BUFFER, gridVertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, (squares + 1) * (squares + 1) * 3 * sizeof(double), verts, GL_STATIC_DRAW);
-
-    glGenBuffers(1, &gridIndexBuffer);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gridIndexBuffer);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, squares * squares * 8 * sizeof(unsigned int), indices, GL_STATIC_DRAW);
-
-    delete[] verts;
-    delete[] indices;
-
-    position = glm::vec3(0, 2, 0);
+    position = glm::vec3(0, CHUNK_SIZE/2, 0);
 }
 
 void Widget::resizeGL(int w, int h)
@@ -135,8 +85,9 @@ void Widget::paintGL()
     glUniform1f(clockLoc, l);
 
     glClearColor(135/255.0 * l, 196/255.0 * l, 250 / 255.0 * l, 1.0);
+    //glClearColor(1.0, 1.0, 1.0, 1.0);
 
-    glBindVertexArray(vertexArrayID);
+    vao.bind();
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -146,8 +97,24 @@ void Widget::paintGL()
     glm::vec4 delta(motion * SPEED, 1.0);
     delta = glm::transpose(cam) * delta;
     position.x += delta.x;
-    position.y += delta.y;
+    //position.y += delta.y;
+    position.y = std::min(CHUNK_SIZE / 2.0f, std::max(position.y + delta.y, -CHUNK_SIZE / 2.0f));
     position.z += delta.z;
+
+    if(position.z > CHUNK_SIZE / 2) {
+        position.z += -CHUNK_SIZE;
+        currentMapNode = currentMapNode->getNext(Glube::MapNode::SOUTH);
+    } else if(position.z < -CHUNK_SIZE / 2) {
+        position.z += CHUNK_SIZE;
+        currentMapNode = currentMapNode->getNext(Glube::MapNode::NORTH);
+    } else if(position.x > CHUNK_SIZE / 2) {
+        position.x += -CHUNK_SIZE;
+        currentMapNode = currentMapNode->getNext(Glube::MapNode::EAST);
+    } else if(position.x < -CHUNK_SIZE / 2) {
+        position.x += CHUNK_SIZE;
+        currentMapNode = currentMapNode->getNext(Glube::MapNode::WEST);
+    }
+
     glm::vec4 xax = glm::transpose(cam) * glm::vec4(1, 0, 0, 1);
     cam = glm::rotate(cam, -pitch, glm::vec3(xax.x, xax.y, xax.z));
     cam = glm::translate(cam, -position);
@@ -156,26 +123,16 @@ void Widget::paintGL()
     int eyeLoc = shaderProg.uniformLocation("eyePosition");
     glUniform3fv(eyeLoc, 1, glm::value_ptr(position));
 
-    glm::mat4 modelMatrix;
-    modelMatrix = glm::translate(modelMatrix, glm::vec3(0, 0, 0));
-    int mLoc = shaderProg.uniformLocation("modelMatrix");
-    glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(modelMatrix));
+    glm::mat4 modelMatrix(1.0f);
 
-    glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, gridVertexBuffer);
-    glVertexAttribPointer(
-       0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
-       3,                  // size
-       GL_DOUBLE,           // type
-       GL_FALSE,           // normalized?
-       0,                  // stride
-       (void*)0            // array buffer offset
-    );
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gridIndexBuffer);
-    glDrawElements(GL_LINES, 1000 * 1000 * 8, GL_UNSIGNED_INT, 0);
-
-    glDisableVertexAttribArray(0);
+    QList<Glube::MapNode*> nodes;
+    currentMapNode->findRecursive(glm::vec3(0, 0, 0), 2.5f * CHUNK_SIZE, nodes);
+    foreach(Glube::MapNode *n, nodes) {
+        glm::vec4 camPos = cam * glm::vec4(n->pos(), 1.0f);
+        if(camPos.z < CHUNK_SIZE/2)
+            n->draw(shaderProg, modelMatrix);
+    }
+    //currentMapNode->draw(shaderProg, modelMatrix);
 }
 
 void Widget::keyPressEvent(QKeyEvent *e)

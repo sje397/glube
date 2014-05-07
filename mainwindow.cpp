@@ -9,7 +9,7 @@ MainWindow::MainWindow(QWidget *parent) :
 {
     ui->setupUi(this);
 
-    QShortcut *quitCut = new QShortcut(QKeySequence(Qt::Key_Escape), this, SLOT(close()), 0, Qt::ApplicationShortcut);
+    new QShortcut(QKeySequence(Qt::Key_Escape), this, SLOT(close()), 0, Qt::ApplicationShortcut);
 }
 
 MainWindow::~MainWindow()

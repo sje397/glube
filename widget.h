@@ -5,11 +5,17 @@
 #include <QGLWidget>
 #include <QGLShaderProgram>
 
-#define GLM_FORCE_RADIANS
-#include <glm/glm.hpp>
-
 #include <QKeyEvent>
 #include <QMouseEvent>
+
+#include "mapnode.h"
+#include "vao.h"
+
+#include <memory>
+
+#include <boost/shared_ptr.hpp>
+
+using boost::shared_ptr;
 
 class Widget : public QGLWidget
 {
@@ -34,12 +40,13 @@ private:
     void LoadShaders();
 
     QGLShaderProgram shaderProg;
-    GLuint vertexArrayID;
-    GLuint gridVertexBuffer, gridIndexBuffer;
-
+    Glube::VAO vao;
     glm::mat4 cam;
     glm::vec3 motion, position;
     float yaw, yawRate, pitch, pitchRate;
+
+    Glube::MapNodeFactory nodeFactory;
+    shared_ptr<Glube::MapNode> currentMapNode;
 };
 
 #endif // WIDGET_H
