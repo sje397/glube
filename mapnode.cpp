@@ -29,37 +29,104 @@ std::size_t MapNodeFactory::getChunkSize() const
 }
 
 
-MapNode::MapNode(long x_, long y_, std::size_t chunkSize, MapNodeFactory& fact):
-    x(x_), y(y_),
+MapNode::MapNode(long x_, long z_, std::size_t chunkSize, MapNodeFactory& fact):
+    Drawable(glm::vec3(x_ * chunkSize - chunkSize / 2.0f, 0, z_ * chunkSize - chunkSize / 2.0f)),
+    Chunk(chunkSize),
+    x(x_), z(z_),
     factory(fact),
-    chunk(new Chunk(chunkSize))
+    built(false)
 {
-    chunk->gen(x, 0, -y);
 }
 
 MapNode::~MapNode()
 {
+    if(m_buildThread) {
+        m_buildThread->join();
+    }
+}
+
+void MapNode::startBuild()
+{
+    if(!built && !m_buildThread) {
+        m_buildThread.reset(new boost::thread(boost::bind(&MapNode::build, this)));
+    }
+}
+
+void MapNode::assignRandom()
+{
+    Chunk::assignRandom(x, 0, z);
+}
+
+void MapNode::build() {
+    if(!built) {
+        qDebug() << "Building (" << x << "," << z << ")";
+        getNext(NORTH)->assignRandom();
+        getNext(EAST)->assignRandom();
+        getNext(SOUTH)->assignRandom();
+        getNext(WEST)->assignRandom();
+        assignRandom();
+        buildQuads();
+        built = true;
+        qDebug() << "Built (" << x << "," << z << ")";
+    }
 }
 
 void MapNode::draw(QGLShaderProgram& shaderProg, const glm::mat4& parentModelMatrix)
 {
     Drawable::draw(shaderProg, parentModelMatrix);
-    chunk->draw();
+    if(built) {
+        Chunk::draw();
+    } else {
+        startBuild();
+    }
+}
+
+void MapNode::deleteBuffers()
+{
+    Chunk::deleteBuffers();
+}
+
+Chunk::BlockType MapNode::getBlock(int x, int y, int z)
+{
+    int si = size/2;
+    if(y < 0 || y >= size) return 0;
+    MapNode* n = this;
+    if(x < -si) {
+        n = n->getNext(WEST).get();
+        x += size;
+    } else if(x >= si) {
+        n = n->getNext(EAST).get();
+        x -= size;
+    }
+    if(z < -si) {
+        n = n->getNext(NORTH).get();
+        z += size;
+    } else if(z >= si) {
+        n = n->getNext(SOUTH).get();
+        z -= size;
+    }
+    return n->Chunk::getBlock(x, y, z);
+}
+
+void MapNode::setBlock(int x, int y, int z, BlockType value)
+{
+    Chunk::setBlock(x, y, z, value);
+    built = false;
 }
 
 shared_ptr<MapNode> MapNode::getNext(int direction)
 {
     switch(direction) {
-    case NORTH: return factory.getMapNode(x, y + 1);
-    case EAST: return factory.getMapNode(x + 1, y);
-    case SOUTH: return factory.getMapNode(x, y - 1);
-    case WEST: return factory.getMapNode(x - 1, y);
+    case NORTH: return factory.getMapNode(x, z - 1);
+    case EAST: return factory.getMapNode(x + 1, z);
+    case SOUTH: return factory.getMapNode(x, z + 1);
+    case WEST: return factory.getMapNode(x - 1, z);
     }
 
     return shared_ptr<MapNode>();
 }
 
-void MapNode::findRecursive(const glm::vec3 &pos, float radius, QList<MapNode*>& nodeList)
+void MapNode::findRecursive(const glm::vec3 &pos, float radius, List& nodeList)
 {
     if(nodeList.contains(this)) return;
     if(radius < glm::length(pos)) return;

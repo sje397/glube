@@ -10,6 +10,7 @@
 
 #include "mapnode.h"
 #include "vao.h"
+#include "camera.h"
 
 #include <memory>
 
@@ -41,12 +42,16 @@ private:
 
     QGLShaderProgram shaderProg;
     Glube::VAO vao;
-    glm::mat4 cam;
-    glm::vec3 motion, position;
-    float yaw, yawRate, pitch, pitchRate;
+    glm::vec3 motion;
+    float yawRate;
+    bool jets;
+    int activeCam;
+
+    Glube::Camera cam[3];
 
     Glube::MapNodeFactory nodeFactory;
     shared_ptr<Glube::MapNode> currentMapNode;
+    Glube::MapNode::List visibleNodes;
 };
 
 #endif // WIDGET_H

@@ -26,7 +26,7 @@ private:
     std::map<QString, shared_ptr<MapNode> > nodes;
 };
 
-class MapNode: public Drawable
+class MapNode: public Drawable, public Chunk
 {
 public:
     static const int NORTH = 0;
@@ -34,17 +34,26 @@ public:
     static const int SOUTH = 2;
     static const int WEST = 3;
 
-    MapNode(long x, long y, std::size_t chunkSize, MapNodeFactory &fact);
+    MapNode(long x, long z, std::size_t chunkSize, MapNodeFactory &fact);
     virtual ~MapNode();
+    void startBuild();
+    void assignRandom();
+    void build();
 
     void draw(QGLShaderProgram &shaderProg, const glm::mat4 &parentModelMatrix);
+    void deleteBuffers();
+    virtual Chunk::BlockType getBlock(int x, int y, int z);
+    virtual void setBlock(int x, int y, int z, BlockType value);
     shared_ptr<MapNode> getNext(int direction);
 
-    void findRecursive(const glm::vec3 &pos, float radius, QList<MapNode*> &nodeList);
+    typedef QList<MapNode*> List;
+    void findRecursive(const glm::vec3 &pos, float radius, List &nodeList);
 private:
-    long x, y;
+    long x, z;
     MapNodeFactory &factory;
-    scoped_ptr<Chunk> chunk;
+    boost::mutex m_mutex;
+    scoped_ptr<boost::thread> m_buildThread;
+    bool built;
 };
 
 }

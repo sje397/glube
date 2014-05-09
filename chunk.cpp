@@ -4,199 +4,228 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#include <vector>
+#include <boost/thread/locks.hpp>
 
 #include <QDebug>
 
 namespace Glube {
 
-Chunk::Chunk(std::size_t size_):
+Chunk::Chunk(int size_):
     size(size_),
     blockData(new unsigned char[size_ * size_ * size_]),
+    blockDataReady(false),
     vertexBuffer(0),
     normalBuffer(0),
     quads(0)
 {
-    for(std::size_t i = 0; i < size * size * size; ++i) {
-        blockData[i] = 0;
-    }
-
-    glGenBuffers(1, &vertexBuffer);
-    glGenBuffers(1, &normalBuffer);
 }
 
 Chunk::~Chunk() {
-    glDeleteBuffers(1, &normalBuffer);
-    glDeleteBuffers(1, &vertexBuffer);
-}
-
-void Chunk::gen(long ix, long iy, long iz)
-{
-    const int hs = size/2;
-    //const float r = size/2;
-    for(int x = -hs; x < hs; ++x) {
-        for(int y = -hs; y < hs; ++y) {
-            for(int z = -hs; z < hs; ++z) {
-                if(y > 0) setBlock(x, y, z, 0);
-                else
-                {
-                    const float n = simplex_noise(3, x / (float)hs/2 + ix, y / (float)hs/2 + iy, z / (float)hs/2 + iz);
-                    BlockType block = n > 2.8f ? 0 : 1;
-                    setBlock(x, y, z, block);
-                }
-            }
-        }
-    }
+    deleteBuffers();
 }
 
 void Chunk::draw() {
-    if(quads == 0) {
-        buildQuads();
+    if(quads != 0) {
+        copyDataToGPU();
+
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+        glVertexAttribPointer(
+           0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+           3,                  // size
+           GL_FLOAT,           // type
+           GL_FALSE,           // normalized?
+           0,                  // stride
+           (void*)0            // array buffer offset
+        );
+        glBindBuffer(GL_ARRAY_BUFFER, normalBuffer);
+        glVertexAttribPointer(
+           1,                  // attribute 1. No particular reason for 0, but must match the layout in the shader.
+           3,                  // size
+           GL_FLOAT,           // type
+           GL_FALSE,           // normalized?
+           0,                  // stride
+           (void*)0            // array buffer offset
+        );
+
+        glDrawArrays(GL_QUADS, 0, quads * 4);
+
+        glDisableVertexAttribArray(1);
+        glDisableVertexAttribArray(0);
     }
-
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
-    glVertexAttribPointer(
-       0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
-       3,                  // size
-       GL_FLOAT,           // type
-       GL_FALSE,           // normalized?
-       0,                  // stride
-       (void*)0            // array buffer offset
-    );
-    glBindBuffer(GL_ARRAY_BUFFER, normalBuffer);
-    glVertexAttribPointer(
-       1,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
-       3,                  // size
-       GL_FLOAT,           // type
-       GL_FALSE,           // normalized?
-       0,                  // stride
-       (void*)0            // array buffer offset
-    );
-
-    glDrawArrays(GL_QUADS, 0, quads * 4);
-
-    glDisableVertexAttribArray(1);
-    glDisableVertexAttribArray(0);
 }
 
-Chunk::BlockType Chunk::getBlock(std::size_t x, std::size_t y, std::size_t z) const
+void Chunk::deleteBuffers()
 {
-    return blockData[x + size/2 + (y + size/2) * size + (z + size/2) * size * size];
+    if(normalBuffer && vertexBuffer) {
+        if(glIsBuffer(normalBuffer)) glDeleteBuffers(1, &normalBuffer);
+        if(glIsBuffer(vertexBuffer)) glDeleteBuffers(1, &vertexBuffer);
+        normalBuffer = 0;
+        vertexBuffer = 0;
+    }
 }
 
-void Chunk::setBlock(std::size_t x, std::size_t y, std::size_t z, Chunk::BlockType value)
+Chunk::BlockType Chunk::getBlock(int x, int y, int z)
 {
-    blockData[x + size/2 + (y + size/2) * size + (z + size/2) * size * size] = value;
-    quads = 0;
+    boost::mutex::scoped_lock lock(m_mutex);
+    return blockData[x + size/2 + y * size + (z + size/2) * size * size];
+}
+
+void Chunk::setBlock(int x, int y, int z, Chunk::BlockType value)
+{
+    blockData[x + size/2 + y * size + (z + size/2) * size * size] = value;
+    deleteBuffers();
+}
+
+void Chunk::assignRandom(long ix, long iy, long iz)
+{
+    boost::mutex::scoped_lock lock(m_mutex);
+    if(!blockDataReady) {
+        qDebug() << "Generating block data for (" << ix << "," << iy << "," << iz << ")";
+        const int hs = size/2;
+        for(int x = -hs; x < hs; ++x) {
+            for(int y = 0; y < size; ++y) {
+                for(int z = -hs; z < hs; ++z) {
+                    const float n = simplex_noise(1, x / (float)hs/2 + ix + 500, y / (float)size + iy + 500, z / (float)hs/2 + iz + 500);
+                    //const float hf = (y < size/2 ? 1 : 1 - (y - size/2) / (float)(size / 2));
+                    const float hf = pow((1 - y/(float)size) * 2, 2);
+                    BlockType block = n * hf > 1.0f ? 0 : 1;
+                    setBlock(x, y, z, block);
+
+                    sched_yield();
+                }
+            }
+        }
+        blockDataReady = true;
+        qDebug() << "Generated block data for (" << ix << "," << iy << "," << iz << ")";
+    }
 }
 
 
 #define push(v, x, y, z) v.push_back(x); v.push_back(y); v.push_back(z);
 void Chunk::buildQuads()
 {
-    quads = 0;
-    std::vector<float> verts, normals;
+    if(!blockDataReady)
+        return;
+
+    std::vector<float> rVerts, rNormals;
+    std::size_t rQuads = 0;
     const int hs = size/2;
     for(int x = -hs; x < hs; ++x)
     {
-        for(int y = -hs; y < hs; ++y)
+        for(int y = 0; y < size; ++y)
         {
             for(int z = -hs; z < hs; ++z)
             {
                 BlockType block = getBlock(x, y, z);
                 if(block) {
-                    if(x == -hs || (x > -hs && !getBlock(x - 1, y, z))) {
+                    if(!getBlock(x - 1, y, z)) {
                         //left
-                        push(verts, x - 0.5, y - 0.5, z - 0.5);
-                        push(verts, x - 0.5, y + 0.5, z - 0.5);
-                        push(verts, x - 0.5, y + 0.5, z + 0.5);
-                        push(verts, x - 0.5, y - 0.5, z + 0.5);
+                        push(rVerts, x - 0.5, y - 0.5, z - 0.5);
+                        push(rVerts, x - 0.5, y + 0.5, z - 0.5);
+                        push(rVerts, x - 0.5, y + 0.5, z + 0.5);
+                        push(rVerts, x - 0.5, y - 0.5, z + 0.5);
 
-                        push(normals, -1, 0, 0);
-                        push(normals, -1, 0, 0);
-                        push(normals, -1, 0, 0);
-                        push(normals, -1, 0, 0);
-                        quads++;
+                        push(rNormals, -1, 0, 0);
+                        push(rNormals, -1, 0, 0);
+                        push(rNormals, -1, 0, 0);
+                        push(rNormals, -1, 0, 0);
+                        rQuads++;
                     }
-                    if(x == hs - 1 || (x < hs - 1 && !getBlock(x + 1, y, z))) {
+                    if(!getBlock(x + 1, y, z)) {
                         //right
-                        push(verts, x + 0.5, y - 0.5, z - 0.5);
-                        push(verts, x + 0.5, y + 0.5, z - 0.5);
-                        push(verts, x + 0.5, y + 0.5, z + 0.5);
-                        push(verts, x + 0.5, y - 0.5, z + 0.5);
+                        push(rVerts, x + 0.5, y - 0.5, z - 0.5);
+                        push(rVerts, x + 0.5, y + 0.5, z - 0.5);
+                        push(rVerts, x + 0.5, y + 0.5, z + 0.5);
+                        push(rVerts, x + 0.5, y - 0.5, z + 0.5);
 
-                        push(normals, 1, 0, 0);
-                        push(normals, 1, 0, 0);
-                        push(normals, 1, 0, 0);
-                        push(normals, 1, 0, 0);
-                        quads++;
+                        push(rNormals, 1, 0, 0);
+                        push(rNormals, 1, 0, 0);
+                        push(rNormals, 1, 0, 0);
+                        push(rNormals, 1, 0, 0);
+                        rQuads++;
                     }
-                    if(z == -hs || (z > -hs && !getBlock(x, y, z - 1))) {
+                    if(!getBlock(x, y, z - 1)) {
                         //forward
-                        push(verts, x - 0.5, y - 0.5, z - 0.5);
-                        push(verts, x + 0.5, y - 0.5, z - 0.5);
-                        push(verts, x + 0.5, y + 0.5, z - 0.5);
-                        push(verts, x - 0.5, y + 0.5, z - 0.5);
+                        push(rVerts, x - 0.5, y - 0.5, z - 0.5);
+                        push(rVerts, x + 0.5, y - 0.5, z - 0.5);
+                        push(rVerts, x + 0.5, y + 0.5, z - 0.5);
+                        push(rVerts, x - 0.5, y + 0.5, z - 0.5);
 
-                        push(normals, 0, 0, -1);
-                        push(normals, 0, 0, -1);
-                        push(normals, 0, 0, -1);
-                        push(normals, 0, 0, -1);
-                        quads++;
+                        push(rNormals, 0, 0, -1);
+                        push(rNormals, 0, 0, -1);
+                        push(rNormals, 0, 0, -1);
+                        push(rNormals, 0, 0, -1);
+                        rQuads++;
                     }
-                    if(z == hs - 1 || (z < hs - 1 && !getBlock(x, y, z + 1))) {
+                    if(!getBlock(x, y, z + 1)) {
                         //back
-                        push(verts, x - 0.5, y - 0.5, z + 0.5);
-                        push(verts, x + 0.5, y - 0.5, z + 0.5);
-                        push(verts, x + 0.5, y + 0.5, z + 0.5);
-                        push(verts, x - 0.5, y + 0.5, z + 0.5);
+                        push(rVerts, x - 0.5, y - 0.5, z + 0.5);
+                        push(rVerts, x + 0.5, y - 0.5, z + 0.5);
+                        push(rVerts, x + 0.5, y + 0.5, z + 0.5);
+                        push(rVerts, x - 0.5, y + 0.5, z + 0.5);
 
-                        push(normals, 0, 0, 1);
-                        push(normals, 0, 0, 1);
-                        push(normals, 0, 0, 1);
-                        push(normals, 0, 0, 1);
-                        quads++;
+                        push(rNormals, 0, 0, 1);
+                        push(rNormals, 0, 0, 1);
+                        push(rNormals, 0, 0, 1);
+                        push(rNormals, 0, 0, 1);
+                        rQuads++;
                     }
-                    if(y == -hs || (y > -hs && !getBlock(x, y - 1, z))) {
+                    if(y > 0 && !getBlock(x, y - 1, z)) {
                         //up
-                        push(verts, x - 0.5, y - 0.5, z - 0.5);
-                        push(verts, x + 0.5, y - 0.5, z - 0.5);
-                        push(verts, x + 0.5, y - 0.5, z + 0.5);
-                        push(verts, x - 0.5, y - 0.5, z + 0.5);
+                        push(rVerts, x - 0.5, y - 0.5, z - 0.5);
+                        push(rVerts, x + 0.5, y - 0.5, z - 0.5);
+                        push(rVerts, x + 0.5, y - 0.5, z + 0.5);
+                        push(rVerts, x - 0.5, y - 0.5, z + 0.5);
 
-                        push(normals, 0, -1, 0);
-                        push(normals, 0, -1, 0);
-                        push(normals, 0, -1, 0);
-                        push(normals, 0, -1, 0);
-                        quads++;
+                        push(rNormals, 0, -1, 0);
+                        push(rNormals, 0, -1, 0);
+                        push(rNormals, 0, -1, 0);
+                        push(rNormals, 0, -1, 0);
+                        rQuads++;
                     }
-                    if(y == hs - 1 || (y < hs - 1 && !getBlock(x, y + 1, z))) {
+                    if(y < size - 1 && !getBlock(x, y + 1, z)) {
                         //down
-                        push(verts, x - 0.5, y + 0.5, z - 0.5);
-                        push(verts, x + 0.5, y + 0.5, z - 0.5);
-                        push(verts, x + 0.5, y + 0.5, z + 0.5);
-                        push(verts, x - 0.5, y + 0.5, z + 0.5);
+                        push(rVerts, x - 0.5, y + 0.5, z - 0.5);
+                        push(rVerts, x + 0.5, y + 0.5, z - 0.5);
+                        push(rVerts, x + 0.5, y + 0.5, z + 0.5);
+                        push(rVerts, x - 0.5, y + 0.5, z + 0.5);
 
-                        push(normals, 0, 1, 0);
-                        push(normals, 0, 1, 0);
-                        push(normals, 0, 1, 0);
-                        push(normals, 0, 1, 0);
-                        quads++;
+                        push(rNormals, 0, 1, 0);
+                        push(rNormals, 0, 1, 0);
+                        push(rNormals, 0, 1, 0);
+                        push(rNormals, 0, 1, 0);
+                        rQuads++;
                     }
+                    sched_yield();
                 }
             }
         }
     }
 
-    qDebug() << "Quads:" << quads << ", verts" << verts.size();
+    qDebug() << "Quads:" << rQuads << ", verts" << rVerts.size();
 
-    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), &verts[0], GL_STATIC_DRAW);
+    {
+        verts = rVerts;
+        normals = rNormals;
+        quads = rQuads;
+    }
 
-    glBindBuffer(GL_ARRAY_BUFFER, normalBuffer);
-    glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(float), &normals[0], GL_STATIC_DRAW);
+}
+
+void Chunk::copyDataToGPU()
+{
+    if(quads > 0 && (!vertexBuffer || !normalBuffer)) {
+        if(!vertexBuffer) glGenBuffers(1, &vertexBuffer);
+        if(!normalBuffer) glGenBuffers(1, &normalBuffer);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+        glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), &verts[0], GL_DYNAMIC_DRAW);
+
+        glBindBuffer(GL_ARRAY_BUFFER, normalBuffer);
+        glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(float), &normals[0], GL_DYNAMIC_DRAW);
+    }
 }
 
 }

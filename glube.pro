@@ -5,6 +5,7 @@
 #-------------------------------------------------
 
 QT += core gui opengl
+CONFIG += c++11
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -13,6 +14,8 @@ TEMPLATE = app
 
 INCLUDEPATH += /usr/local/include
 
+LIBS += -l boost_thread-mt
+
 SOURCES += main.cpp \
     mainwindow.cpp \
     widget.cpp \
@@ -20,7 +23,8 @@ SOURCES += main.cpp \
     drawable.cpp \
     mapnode.cpp \
     vao.cpp \
-    simplex.c
+    simplex.c \
+    camera.cpp
 
 HEADERS  += mainwindow.h \
     widget.h \
@@ -28,7 +32,8 @@ HEADERS  += mainwindow.h \
     drawable.h \
     mapnode.h \
     vao.h \
-    simplex.h
+    simplex.h \
+    camera.h
 
 FORMS    += mainwindow.ui
 

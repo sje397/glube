@@ -6,6 +6,9 @@ uniform mat4 viewMatrix;
 uniform vec3 eyePosition;
 uniform float clock;
 
+uniform float RenderDistance;
+uniform float FogStart;
+
 varying vec3 position;
 varying vec3 norm;
 
@@ -50,8 +53,8 @@ SHC tomb = SHC(
 );
 
 vec3 sh_light(vec3 normal, SHC l){
-    float x = normal.x;
-    float y = normal.y;
+    float x = normal.y;
+    float y = normal.x;
     float z = normal.z;
 
     const float C1 = 0.429043;
@@ -98,13 +101,12 @@ void main(){
     //gl_FragColor = vec4(norm, 1.0);
     //gl_FragColor = vec4(1, 1, 0, 1.0);
 
-    float fog_start = 150, fog_end = 200;
-    float dsq = distance * distance;
-    if(dsq > fog_start * fog_start) {
-        if(dsq > fog_end * fog_end)
-            dsq = fog_end * fog_end;
+    float fog_start = FogStart, fog_end = RenderDistance;
+    if(distance > fog_start) {
+        if(distance > fog_end)
+            distance = fog_end;
             //discard;
-        float g = (dsq - fog_start * fog_start) / (fog_end * fog_end - fog_start * fog_start);
+        float g = (distance - fog_start) / (fog_end - fog_start);
         gl_FragColor = vec4((1 - g) * vec3(gl_FragColor.xyz), 1.0) + vec4(g * vec3(135/255.0, 196/255.0, 250/255.0) * clock, 0.0);
         //gl_FragColor *= 0;
     }
