@@ -14,7 +14,7 @@ TEMPLATE = app
 
 INCLUDEPATH += /usr/local/include
 
-LIBS += -l boost_thread-mt
+LIBS += -L/usr/local/lib -lboost_thread -lboost_atomic -lboost_system
 
 SOURCES += main.cpp \
     mainwindow.cpp \
